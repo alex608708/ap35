@@ -21,6 +21,7 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Build EXE
+        shell: pwsh
         run: |
           pyinstaller `
             --onefile `
@@ -37,12 +38,8 @@ jobs:
           UPLOAD_TOKEN: ${{ secrets.UPLOAD_TOKEN }}
           SERVER_URL: ${{ secrets.SERVER_URL }}
         run: |
-          Add-Type @"
-          using System.Net; using System.Security.Cryptography.X509Certificates;
-          public class TrustAll : ICertificatePolicy {
-            public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int err) { return true; }
-          }
-"@
+          $code = 'using System.Net; using System.Security.Cryptography.X509Certificates; public class TrustAll : ICertificatePolicy { public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int err) { return true; } }'
+          Add-Type -TypeDefinition $code
           [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAll
 
           $form = @{ token = $env:UPLOAD_TOKEN; file = Get-Item "dist\AP35AgentTray.exe" }
