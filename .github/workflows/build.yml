@@ -38,9 +38,7 @@ jobs:
           UPLOAD_TOKEN: ${{ secrets.UPLOAD_TOKEN }}
           SERVER_URL: ${{ secrets.SERVER_URL }}
         run: |
-          $code = 'using System.Net; using System.Security.Cryptography.X509Certificates; public class TrustAll : ICertificatePolicy { public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int err) { return true; } }'
-          Add-Type -TypeDefinition $code
-          [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAll
+          [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 
           $form = @{ token = $env:UPLOAD_TOKEN; file = Get-Item "dist\AP35AgentTray.exe" }
           $resp = Invoke-RestMethod -Uri "$env:SERVER_URL/admin/upload_tray" `
