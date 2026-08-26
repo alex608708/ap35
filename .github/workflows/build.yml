@@ -1,0 +1,65 @@
+name: Build AP35AgentTray
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build EXE
+        run: |
+          pyinstaller `
+            --onefile `
+            --windowed `
+            --name "AP35AgentTray" `
+            --hidden-import "pystray._win32" `
+            --hidden-import "PIL._imaging" `
+            --hidden-import "updater" `
+            main.py
+
+      - name: Upload to server
+        shell: pwsh
+        env:
+          UPLOAD_TOKEN: ${{ secrets.UPLOAD_TOKEN }}
+          SERVER_URL: ${{ secrets.SERVER_URL }}
+        run: |
+          Add-Type @"
+          using System.Net; using System.Security.Cryptography.X509Certificates;
+          public class TrustAll : ICertificatePolicy {
+            public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int err) { return true; }
+          }
+"@
+          [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAll
+
+          $form = @{ token = $env:UPLOAD_TOKEN; file = Get-Item "dist\AP35AgentTray.exe" }
+          $resp = Invoke-RestMethod -Uri "$env:SERVER_URL/admin/upload_tray" `
+                                    -Method Post `
+                                    -Form $form `
+                                    -TimeoutSec 120
+          if ($resp.ok) {
+            Write-Host "Uploaded! Size: $($resp.size) bytes"
+          } else {
+            Write-Error "Server error: $($resp | ConvertTo-Json)"
+            exit 1
+          }
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AP35AgentTray
+          path: dist/AP35AgentTray.exe
+          retention-days: 30
