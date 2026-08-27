@@ -67,12 +67,14 @@ class UpdaterThread(threading.Thread):
             return   # скачался пустой или битый файл
 
         # Пишем version.txt через bat (чтобы записалась уже после успешной замены EXE)
+        exe_path = str(config.APP_DIR / "AP35AgentTray.exe")
+        ver_path = str(config.APP_DIR / "version.txt")
         bat_lines = [
             "@echo off",
             "timeout /t 2 /nobreak >nul",
-            f'copy /y "{new_exe}" "C:\\AP35Agent\\AP35AgentTray.exe"',
-            f'echo {server_ver}> "C:\\AP35Agent\\version.txt"',
-            'start "" "C:\\AP35Agent\\AP35AgentTray.exe"',
+            f'copy /y "{new_exe}" "{exe_path}"',
+            f'echo {server_ver}> "{ver_path}"',
+            f'start "" "{exe_path}"',
             f'del "{new_exe}"',
             'del "%~f0"',
         ]

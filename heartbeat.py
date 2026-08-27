@@ -55,7 +55,19 @@ class HeartbeatThread(threading.Thread):
                             continue
                 except Exception:
                     pass
-            body = json.dumps({"id": rdid, "last_cmd_id": last_cmd_id, "workplace": workplace_local}).encode()
+            # Crash log если был
+            crash_log = ""
+            try:
+                from pathlib import Path as _Path
+                log_f = _Path(config._CFG_DIR) / "crash.log"
+                if log_f.exists() and log_f.stat().st_size > 0:
+                    crash_log = log_f.read_text(encoding="utf-8", errors="replace")[-3000:]
+                    log_f.write_text("", encoding="utf-8")  # очищаем после отправки
+            except Exception:
+                pass
+            body = json.dumps({"id": rdid, "last_cmd_id": last_cmd_id,
+                               "workplace": workplace_local,
+                               "crash_log": crash_log}).encode()
             req = urllib.request.Request(
                 f"{config.SERVER}/api/heartbeat",
                 data=body,
