@@ -85,17 +85,18 @@ def _read_workplace() -> str:
     v = config.get("workplace")
     if v:
         return v
-    # Fallback: txt-файлы (legacy и при первом запуске до heartbeat)
+    # Fallback: txt-файлы — NSIS пишет в ANSI/cp1251, пробуем несколько кодировок
     for base in [config.APP_DIR, Path("C:/AP35Agent")]:
         txt = base / "workplace.txt"
         if txt.exists():
-            try:
-                v = txt.read_text(encoding='utf-8').strip()
-                if v:
-                    config.set_val('workplace', v)  # кэшируем в конфиг
-                    return v
-            except Exception:
-                pass
+            for enc in ('utf-8', 'cp1251', 'utf-16', 'latin-1'):
+                try:
+                    v = txt.read_text(encoding=enc).strip()
+                    if v and v.isprintable() and len(v) > 1:
+                        config.set_val('workplace', v)  # кэшируем в конфиг
+                        return v
+                except Exception:
+                    continue
     return ""
 
 

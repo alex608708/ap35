@@ -123,12 +123,29 @@ class TrayApp:
         """Вызывается из heartbeat-потока — передаём в Qt через сигнал"""
         self._bridge.command_sig.emit(command, payload)
 
+    def _play_notify_sound(self):
+        """Воспроизводит системный звук уведомления в фоне."""
+        def _play():
+            try:
+                import winsound
+                # Mail-звук Windows (приятный, знакомый всем)
+                winsound.PlaySound('MailBeep', winsound.SND_ALIAS | winsound.SND_ASYNC)
+            except Exception:
+                try:
+                    import winsound
+                    winsound.MessageBeep(winsound.MB_ICONASTERISK)
+                except Exception:
+                    pass
+        threading.Thread(target=_play, daemon=True).start()
+
     def _execute_command(self, command: str, payload: str):
         """Выполняется в Qt main thread"""
         if command == 'notify':
+            self._play_notify_sound()
             self._icon.notify(payload or 'Сообщение от AP35', 'AP35 Agent')
             self._blink_notify(6)
         elif command == 'message':
+            self._play_notify_sound()
             dlg = QMessageBox()
             dlg.setWindowTitle('AP35 — Сообщение')
             dlg.setText(payload or 'Сообщение от администратора')
