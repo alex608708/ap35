@@ -2,3 +2,4 @@ pystray>=0.19
 Pillow>=10.0
 PyQt5>=5.15
 pyinstaller>=6.0
+pywin32>=306

@@ -20,7 +20,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Build EXE
+      - name: Post-install pywin32
+        run: python -m pywin32_postinstall -install
+
+      - name: Build Tray EXE
         shell: pwsh
         run: |
           pyinstaller `
@@ -30,7 +33,23 @@ jobs:
             --hidden-import "pystray._win32" `
             --hidden-import "PIL._imaging" `
             --hidden-import "updater" `
+            --hidden-import "installer" `
+            --hidden-import "win32timezone" `
             main.py
+
+      - name: Build Service EXE
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --onefile `
+            --console `
+            --name "AP35AgentService" `
+            --hidden-import "win32timezone" `
+            --hidden-import "servicemanager" `
+            --hidden-import "win32service" `
+            --hidden-import "win32serviceutil" `
+            --hidden-import "win32event" `
+            service.py
 
       - name: Upload to server
         shell: pwsh
@@ -46,15 +65,28 @@ jobs:
                                     -Form $form `
                                     -TimeoutSec 120
           if ($resp.ok) {
-            Write-Host "Uploaded! Size: $($resp.size) bytes"
+            Write-Host "Tray uploaded: $($resp.size) bytes"
           } else {
             Write-Error "Server error: $($resp | ConvertTo-Json)"
             exit 1
           }
 
-      - name: Upload EXE artifact
+          $form2 = @{ token = $env:UPLOAD_TOKEN; file = Get-Item "dist\AP35AgentService.exe" }
+          $resp2 = Invoke-RestMethod -Uri "$env:SERVER_URL/admin/upload_service" `
+                                     -Method Post `
+                                     -Form $form2 `
+                                     -TimeoutSec 120
+          if ($resp2.ok) {
+            Write-Host "Service uploaded: $($resp2.size) bytes"
+          } else {
+            Write-Host "Service upload warning: $($resp2 | ConvertTo-Json)"
+          }
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: AP35AgentTray
-          path: dist/AP35AgentTray.exe
+          name: AP35Agent
+          path: |
+            dist/AP35AgentTray.exe
+            dist/AP35AgentService.exe
           retention-days: 30
