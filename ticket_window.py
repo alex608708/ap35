@@ -8,13 +8,14 @@ import ssl
 import subprocess
 import threading
 import urllib.request
+from pathlib import Path
 
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve
 from PyQt5.QtGui import QColor, QPalette, QFont
 from PyQt5.QtWidgets import (
-    QApplication,
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QTextEdit, QPushButton, QFrame, QSizePolicy
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QLineEdit, QTextEdit, QPushButton, QFrame, QSizePolicy,
+    QScrollArea
 )
 
 import config
@@ -29,6 +30,7 @@ FG_DIM   = "#64748b"
 ACCENT   = "#6c63ff"
 GREEN    = "#86efac"
 RED      = "#fca5a5"
+YELLOW   = "#fbbf24"
 
 
 def _css_entry():
@@ -78,29 +80,54 @@ def _detect_domain():
 
 
 def _read_workplace() -> str:
-    txt = config.APP_DIR / "workplace.txt"
-    if txt.exists():
-        try:
-            v = txt.read_text(encoding='utf-8').strip()
-            if v:
-                return v
-        except Exception:
-            pass
+    """Читаем workplace из нового или старого пути (обратная совместимость)."""
+    for base in [config.APP_DIR, Path("C:/AP35Agent")]:
+        txt = base / "workplace.txt"
+        if txt.exists():
+            try:
+                v = txt.read_text(encoding='utf-8').strip()
+                if v:
+                    return v
+            except Exception:
+                pass
     return config.get("workplace")
+
+
+class HistoryThread(QThread):
+    """Загружает историю заявок от этого агента."""
+    done = pyqtSignal(list)
+
+    def run(self):
+        rdid = config.get_rdid()
+        if not rdid:
+            self.done.emit([])
+            return
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+        try:
+            req = urllib.request.Request(
+                f"{config.SERVER}/api/tickets?token={config.TOKEN}&rdid={rdid}",
+                method="GET"
+            )
+            with urllib.request.urlopen(req, timeout=10, context=ssl_ctx) as r:
+                data = json.loads(r.read().decode('utf-8'))
+            self.done.emit(data.get('tickets', []))
+        except Exception:
+            self.done.emit([])
 
 
 class TicketWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Новая заявка — AP35")
-        self.setFixedWidth(420)
+        self.setFixedWidth(440)
         self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
-
-        # Тёмный фон
         self.setStyleSheet(f"QWidget {{ background: {BG}; color: {FG}; font-family: 'Segoe UI'; }}")
 
         self._is_domain, self._domain_fio = _detect_domain()
         self._workplace = _read_workplace()
+        self._history_visible = False
 
         self._build()
         self._center()
@@ -108,23 +135,51 @@ class TicketWindow(QWidget):
     # ── UI ───────────────────────────────────────────────────────────────────
 
     def _build(self):
-        layout = QVBoxLayout(self)
+        root = QHBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Панель истории (слева, скрыта) ───────────────────────────────────
+        self._history_panel = QFrame()
+        self._history_panel.setFixedWidth(0)
+        self._history_panel.setStyleSheet(f"QFrame {{ background: {BG2}; border-right: 1px solid {BORDER}; }}")
+        hist_layout = QVBoxLayout(self._history_panel)
+        hist_layout.setContentsMargins(12, 16, 12, 12)
+        hist_layout.setSpacing(6)
+
+        hist_title = QLabel("📋 Мои заявки")
+        hist_title.setStyleSheet(f"color:{FG}; font-size:13px; font-weight:700;")
+        hist_layout.addWidget(hist_title)
+
+        self._hist_scroll = QScrollArea()
+        self._hist_scroll.setWidgetResizable(True)
+        self._hist_scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {BG2}; }}")
+        self._hist_content = QLabel("Загрузка...")
+        self._hist_content.setWordWrap(True)
+        self._hist_content.setAlignment(Qt.AlignTop)
+        self._hist_content.setStyleSheet(f"color:{FG_DIM}; font-size:11px; padding:4px;")
+        self._hist_scroll.setWidget(self._hist_content)
+        hist_layout.addWidget(self._hist_scroll)
+
+        root.addWidget(self._history_panel)
+
+        # ── Основной контент ─────────────────────────────────────────────────
+        main_frame = QFrame()
+        layout = QVBoxLayout(main_frame)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(8)
 
-        # ── Бейдж ID агента (последние 4 цифры RustDesk, зелёный) ───────────
+        # Бейдж ID агента
         rdid = config.get_rdid()
         id_frame = QFrame()
-        id_frame.setStyleSheet(
-            "QFrame { background:#052e16; border:1px solid #4ade80; border-radius:6px; }"
-        )
+        id_frame.setStyleSheet("QFrame { background:#052e16; border:1px solid #4ade80; border-radius:6px; }")
         id_row = QHBoxLayout(id_frame)
         id_row.setContentsMargins(12, 6, 12, 6)
         id_row.setSpacing(0)
 
         if rdid:
-            last4   = rdid[-4:]
-            prefix  = rdid[:-4] if len(rdid) > 4 else ""
+            last4  = rdid[-4:]
+            prefix = rdid[:-4] if len(rdid) > 4 else ""
             id_html = (
                 f'<span style="color:#86efac;font-size:11px;">ID:&nbsp;</span>'
                 f'<span style="color:#94a3b8;font-size:11px;">{prefix}</span>'
@@ -138,6 +193,19 @@ class TicketWindow(QWidget):
         id_lbl.setStyleSheet("background:transparent; border:none;")
         id_row.addWidget(id_lbl)
         id_row.addStretch()
+
+        # Кнопка История
+        btn_hist = QPushButton("📋 История")
+        btn_hist.setStyleSheet(f"""
+            QPushButton {{
+                background:#1e293b; color:{FG_DIM};
+                border:1px solid {BORDER}; border-radius:4px;
+                padding:3px 10px; font-size:11px;
+            }}
+            QPushButton:hover {{ background:#283548; color:{FG}; }}
+        """)
+        btn_hist.clicked.connect(self._toggle_history)
+        id_row.addWidget(btn_hist)
         layout.addWidget(id_frame)
 
         # Заголовок
@@ -145,7 +213,7 @@ class TicketWindow(QWidget):
         title.setStyleSheet(f"color:{FG}; font-size:17px; font-weight:700; margin-top:4px;")
         layout.addWidget(title)
 
-        # ── Организация (вверху, read-only) ──────────────────────────────────
+        # Организация
         org_frame = QFrame()
         org_frame.setStyleSheet(f"""
             QFrame {{
@@ -163,7 +231,7 @@ class TicketWindow(QWidget):
         org_lbl.setStyleSheet(f"color:{FG_DIM}; font-size:10px; font-weight:600; border:none;")
         org_layout.addWidget(org_lbl)
 
-        org_val = self._workplace if self._workplace else "не задана (переустановите агент)"
+        org_val = self._workplace if self._workplace else "не задана"
         org_name = QLabel(f"🏢  {org_val}")
         org_name.setStyleSheet(f"color:{FG}; font-size:14px; font-weight:600; border:none;")
         org_layout.addWidget(org_name)
@@ -183,7 +251,7 @@ class TicketWindow(QWidget):
         layout.addWidget(self._cap("ОПИСАНИЕ"))
         self.inp_content = QTextEdit()
         self.inp_content.setStyleSheet(_css_entry())
-        self.inp_content.setFixedHeight(80)
+        self.inp_content.setFixedHeight(70)
         self.inp_content.setPlaceholderText("Подробности (необязательно)...")
         layout.addWidget(self.inp_content)
 
@@ -204,11 +272,12 @@ class TicketWindow(QWidget):
             self.inp_fio.setReadOnly(True)
         layout.addWidget(self.inp_fio)
 
-        # Телефон
-        layout.addWidget(self._cap("ТЕЛЕФОН"))
+        # Телефон *
+        layout.addWidget(self._cap("ТЕЛЕФОН ДЛЯ СВЯЗИ *"))
         self.inp_phone = QLineEdit()
         self.inp_phone.setStyleSheet(_css_entry())
         self.inp_phone.setText(config.get("phone"))
+        self.inp_phone.setPlaceholderText("+7 (999) 000-00-00")
         layout.addWidget(self.inp_phone)
 
         layout.addWidget(self._sep())
@@ -248,6 +317,7 @@ class TicketWindow(QWidget):
         btn_row.addWidget(self.btn_send)
         layout.addLayout(btn_row)
 
+        root.addWidget(main_frame)
         self.inp_subject.setFocus()
 
     def _cap(self, text: str) -> QLabel:
@@ -271,6 +341,67 @@ class TicketWindow(QWidget):
         except Exception:
             pass
 
+    # ── История ──────────────────────────────────────────────────────────────
+
+    def _toggle_history(self):
+        self._history_visible = not self._history_visible
+        target_w = 220 if self._history_visible else 0
+
+        self._anim = QPropertyAnimation(self._history_panel, b"minimumWidth")
+        self._anim.setDuration(200)
+        self._anim.setStartValue(self._history_panel.width())
+        self._anim.setEndValue(target_w)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim.start()
+
+        self._anim2 = QPropertyAnimation(self._history_panel, b"maximumWidth")
+        self._anim2.setDuration(200)
+        self._anim2.setStartValue(self._history_panel.width())
+        self._anim2.setEndValue(target_w)
+        self._anim2.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim2.start()
+
+        if self._history_visible:
+            self._load_history()
+
+    def _load_history(self):
+        self._hist_content.setText("Загрузка...")
+        t = HistoryThread(self)
+        t.done.connect(self._show_history)
+        t.start()
+
+    def _show_history(self, tickets: list):
+        if not tickets:
+            self._hist_content.setText("Заявок пока нет")
+            return
+
+        STATUS_COLOR = {
+            'new': YELLOW, 'open': '#60a5fa', 'closed': GREEN,
+            'resolved': GREEN, 'pending': FG_DIM,
+        }
+        STATUS_LABEL = {
+            'new': '🆕 Новая', 'open': '🔄 В работе',
+            'closed': '✅ Закрыта', 'resolved': '✅ Решена',
+            'pending': '⏳ Ожидание',
+        }
+        lines = []
+        for t in tickets[:20]:
+            tid    = t.get('id', '?')
+            subj   = t.get('subject', '')[:30]
+            status = t.get('status', 'new')
+            date   = str(t.get('date', ''))[:10]
+            color  = STATUS_COLOR.get(status, FG_DIM)
+            slabel = STATUS_LABEL.get(status, status)
+            lines.append(
+                f'<div style="border-bottom:1px solid #1e293b;padding:6px 0;">'
+                f'<span style="color:{FG_DIM};font-size:10px;">№{tid} · {date}</span><br>'
+                f'<span style="color:{FG};font-size:11px;">{subj}</span><br>'
+                f'<span style="color:{color};font-size:10px;">{slabel}</span>'
+                f'</div>'
+            )
+        self._hist_content.setTextFormat(Qt.RichText)
+        self._hist_content.setText(''.join(lines))
+
     # ── Отправка ─────────────────────────────────────────────────────────────
 
     def _submit(self):
@@ -282,16 +413,18 @@ class TicketWindow(QWidget):
         if not self._is_domain and not fio:
             self._set_status("Укажите ваше ФИО", error=True)
             return
+        phone = self.inp_phone.text().strip()
+        if not phone:
+            self._set_status("Укажите телефон для связи", error=True)
+            return
         workplace = self._workplace
         if not workplace:
-            self._set_status("Организация не задана. Переустановите агент.", error=True)
+            self._set_status("Организация не задана. Обратитесь к администратору.", error=True)
             return
-        phone = self.inp_phone.text().strip()
 
         if fio and not (self._is_domain and self._domain_fio):
             config.set_val("fio", fio)
-        if phone:
-            config.set_val("phone", phone)
+        config.set_val("phone", phone)
 
         payload = {
             "token": config.TOKEN,
@@ -330,9 +463,6 @@ class TicketWindow(QWidget):
             self._qt_call(self._on_err, f"Ошибка соединения: {e}")
 
     def _qt_call(self, fn, *args):
-        """Вызов функции в Qt main thread через сигнал."""
-        from PyQt5.QtCore import QMetaObject, Q_ARG
-        # Простейший способ: используем QTimer.singleShot через lambda
         from PyQt5.QtCore import QTimer
         QTimer.singleShot(0, lambda: fn(*args))
 
@@ -342,6 +472,9 @@ class TicketWindow(QWidget):
         self.btn_send.setText("📨  Отправить")
         self.inp_subject.clear()
         self.inp_content.clear()
+        # Обновить историю если открыта
+        if self._history_visible:
+            QTimer.singleShot(1000, self._load_history)
 
     def _on_err(self, msg):
         self._set_status(f"❌  {msg}", error=True)
