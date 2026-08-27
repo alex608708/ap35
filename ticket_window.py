@@ -290,11 +290,10 @@ class TicketWindow(QWidget):
         layout.addWidget(self._cap(fio_cap))
         self.inp_fio = QLineEdit()
         self.inp_fio.setStyleSheet(_css_entry())
-        fio_val = _read_fio() or self._domain_fio
+        fio_val = self._domain_fio or config.get("fio") or _read_fio()
         if fio_val:
             self.inp_fio.setText(fio_val)
-        if self._is_domain and self._domain_fio and not _read_fio():
-            self.inp_fio.setReadOnly(True)
+        # FIO всегда редактируемо - пользователь может исправить
         layout.addWidget(self.inp_fio)
 
         # Телефон *
