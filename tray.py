@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import QApplication
 
 import config
 import icons
+import installer
 from heartbeat import HeartbeatThread
 from ticket_window import TicketWindow
 from updater import UpdaterThread
@@ -132,6 +133,8 @@ class TrayApp:
             dlg.exec_()
         elif command == 'blink':
             self._blink_icon(6)
+        elif command == 'install':
+            installer.execute_install(payload)
 
     def _blink_icon(self, count: int):
         if count <= 0:
