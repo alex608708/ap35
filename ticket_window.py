@@ -127,7 +127,7 @@ class HistoryThread(QThread):
 class TicketWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Новая заявка — AP35")
+        self.setWindowTitle("Агент — AP35")
         self.setFixedWidth(440)
         self.setWindowFlags(Qt.Window | Qt.WindowStaysOnTopHint)
         self.setStyleSheet(f"QWidget {{ background: {BG}; color: {FG}; font-family: 'Segoe UI'; }}")

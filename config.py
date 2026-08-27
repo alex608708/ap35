@@ -5,9 +5,13 @@ import os
 import configparser
 from pathlib import Path
 
+# EXE и rdid.txt — в Program Files (читаем только, пишет installer как admin)
 APP_DIR = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "AP35Agent"
 RDID_FILE = APP_DIR / "rdid.txt"
-CONFIG_FILE = APP_DIR / "agent_tray.ini"
+
+# Конфиг — в APPDATA (всегда доступен на запись текущему пользователю)
+_CFG_DIR = Path(os.environ.get("APPDATA", "C:/Users/Public/AppData/Roaming")) / "AP35Agent"
+CONFIG_FILE = _CFG_DIR / "agent_tray.ini"
 
 SERVER = "https://help.ap35.ru:5000"
 TOKEN = "AP35AgentReg2026"
@@ -24,6 +28,7 @@ def _load():
 
 
 def get_rdid() -> str:
+    """Читает rdid из Program Files (написан installer-ом)."""
     try:
         return RDID_FILE.read_text(encoding="utf-8").strip()
     except Exception:
@@ -38,6 +43,9 @@ def get(key: str, fallback: str = "") -> str:
 def set_val(key: str, value: str):
     _load()
     _cfg["app"][key] = value
-    APP_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        _cfg.write(f)
+    try:
+        _CFG_DIR.mkdir(parents=True, exist_ok=True)
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            _cfg.write(f)
+    except Exception:
+        pass  # Не критично — значение уже в памяти
