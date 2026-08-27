@@ -8,7 +8,8 @@ import winreg
 import threading
 
 import pystray
-from PyQt5.QtCore import QObject, pyqtSignal, Qt
+from PyQt5.QtCore import QObject, pyqtSignal, Qt, QTimer
+from PyQt5.QtWidgets import QMessageBox
 from PyQt5.QtWidgets import QApplication
 
 import config
@@ -31,6 +32,7 @@ class _Bridge(QObject):
     """Мост между pystray-потоком и Qt main thread."""
     open_ticket_sig = pyqtSignal()
     quit_sig = pyqtSignal()
+    command_sig = pyqtSignal(str, str)  # command, payload
 
 
 class TrayApp:
@@ -41,6 +43,7 @@ class TrayApp:
         self._bridge = _Bridge()
         self._bridge.open_ticket_sig.connect(self._show_ticket_window)
         self._bridge.quit_sig.connect(self._do_quit)
+        self._bridge.command_sig.connect(self._execute_command)
 
         self._ticket_win: TicketWindow | None = None
         self._status = "pending"
@@ -52,7 +55,7 @@ class TrayApp:
             menu=self._build_menu(),
         )
 
-        self._hb = HeartbeatThread(self._on_status)
+        self._hb = HeartbeatThread(self._on_status, self._on_command_received)
         self._hb.start()
 
         self._updater = UpdaterThread()
@@ -109,6 +112,42 @@ class TrayApp:
         self._ticket_win.show()
         self._ticket_win.raise_()
         self._ticket_win.activateWindow()
+
+    # ── Команды от сервера ─────────────────────────────────────────────────────
+
+    def _on_command_received(self, command: str, payload: str):
+        """Вызывается из heartbeat-потока — передаём в Qt через сигнал"""
+        self._bridge.command_sig.emit(command, payload)
+
+    def _execute_command(self, command: str, payload: str):
+        """Выполняется в Qt main thread"""
+        if command == 'notify':
+            self._icon.notify(payload or 'Сообщение от AP35', 'AP35 Agent')
+        elif command == 'message':
+            dlg = QMessageBox()
+            dlg.setWindowTitle('AP35 — Сообщение')
+            dlg.setText(payload or 'Сообщение от администратора')
+            dlg.setIcon(QMessageBox.Information)
+            dlg.setWindowFlags(dlg.windowFlags() | Qt.WindowStaysOnTopHint)
+            dlg.exec_()
+        elif command == 'blink':
+            self._blink_icon(6)
+
+    def _blink_icon(self, count: int):
+        if count <= 0:
+            self._icon.icon = icons.online() if self._status == 'online' else icons.offline()
+            return
+        from icons import pending, online, offline
+        current = self._icon.icon
+        self._icon.icon = pending()
+        QTimer.singleShot(400, lambda: self._restore_and_blink(count - 1))
+
+    def _restore_and_blink(self, count: int):
+        if self._status == 'online':
+            self._icon.icon = icons.online()
+        else:
+            self._icon.icon = icons.offline()
+        QTimer.singleShot(400, lambda: self._blink_icon(count))
 
     # ── Автостарт ───────────────────────────────────────────────────────────
 
