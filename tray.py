@@ -66,13 +66,22 @@ class TrayApp:
 
     # ── Меню ────────────────────────────────────────────────────────────────
 
+    # ── Настройки уведомлений ───────────────────────────────────────────────
+
+    def _notify_pref(self, key: str) -> bool:
+        return config.get(key, '1') == '1'
+
+    def _toggle_notify(self, key: str):
+        val = '0' if self._notify_pref(key) else '1'
+        config.set_val(key, val)
+        self._icon.menu = self._build_menu()
+
     def _build_menu(self):
         rdid = config.get_rdid()
-        if rdid:
-            last4 = rdid[-4:]
-            id_text = f"ID: ...{last4}"
-        else:
-            id_text = "ID: не определён"
+        id_text = f"ID: ...{rdid[-4:]}" if rdid else "ID: не определён"
+
+        def chk(key): return '✔ ' if self._notify_pref(key) else '✗ '
+
         return pystray.Menu(
             pystray.MenuItem("AP35 Agent", None, enabled=False),
             pystray.MenuItem(id_text, None, enabled=False),
@@ -80,6 +89,18 @@ class TrayApp:
             pystray.MenuItem("📋 Подать заявку", self._open_ticket, default=True),
             pystray.MenuItem("🌐 Открыть портал",
                              lambda icon, item: webbrowser.open(config.SERVER)),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("🔔 Уведомления", pystray.Menu(
+                pystray.MenuItem(
+                    lambda item: chk('notify_blink') + "Мигание иконки",
+                    lambda icon, item: self._toggle_notify('notify_blink')),
+                pystray.MenuItem(
+                    lambda item: chk('notify_sound') + "Звук",
+                    lambda icon, item: self._toggle_notify('notify_sound')),
+                pystray.MenuItem(
+                    lambda item: chk('notify_popup') + "Всплывающее окно",
+                    lambda icon, item: self._toggle_notify('notify_popup')),
+            )),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("✕ Выход", self._quit),
         )
@@ -141,11 +162,15 @@ class TrayApp:
     def _execute_command(self, command: str, payload: str):
         """Выполняется в Qt main thread"""
         if command == 'notify':
-            self._play_notify_sound()
-            self._icon.notify(payload or 'Сообщение от AP35', 'AP35 Agent')
-            self._blink_notify(6)
+            if self._notify_pref('notify_sound'):
+                self._play_notify_sound()
+            if self._notify_pref('notify_popup'):
+                self._icon.notify(payload or 'Сообщение от AP35', 'AP35 Agent')
+            if self._notify_pref('notify_blink'):
+                self._blink_notify(6)
         elif command == 'message':
-            self._play_notify_sound()
+            if self._notify_pref('notify_sound'):
+                self._play_notify_sound()
             dlg = QMessageBox()
             dlg.setWindowTitle('AP35 — Сообщение')
             dlg.setText(payload or 'Сообщение от администратора')
