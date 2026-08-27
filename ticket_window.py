@@ -12,6 +12,7 @@ import urllib.request
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QColor, QPalette, QFont
 from PyQt5.QtWidgets import (
+    QApplication,
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QTextEdit, QPushButton, QFrame, QSizePolicy
 )
@@ -261,11 +262,14 @@ class TicketWindow(QWidget):
         return line
 
     def _center(self):
-        screen = QApplication.primaryScreen().geometry()
-        self.move(
-            (screen.width() - self.width()) // 2,
-            (screen.height() - self.height()) // 2
-        )
+        try:
+            screen = QApplication.primaryScreen().geometry()
+            self.move(
+                (screen.width() - self.width()) // 2,
+                (screen.height() - self.height()) // 2
+            )
+        except Exception:
+            pass
 
     # ── Отправка ─────────────────────────────────────────────────────────────
 
