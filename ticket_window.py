@@ -79,6 +79,24 @@ def _detect_domain():
     return True, fio
 
 
+def _read_fio() -> str:
+    """Читаем ФИО: конфиг → fio.txt (из установщика) → пусто."""
+    v = config.get("fio")
+    if v:
+        return v
+    for base in [config.APP_DIR]:
+        txt = base / "fio.txt"
+        if txt.exists():
+            for enc in ('utf-16', 'utf-8', 'cp1251', 'latin-1'):
+                try:
+                    v = txt.read_text(encoding=enc).strip()
+                    if v and len(v) > 1:
+                        return v
+                except Exception:
+                    continue
+    return ""
+
+
 def _read_workplace() -> str:
     """Читаем workplace: сначала из конфига (обновляется с сервера), затем из файлов."""
     # Конфиг обновляется heartbeat-ом — самый актуальный источник
@@ -272,10 +290,10 @@ class TicketWindow(QWidget):
         layout.addWidget(self._cap(fio_cap))
         self.inp_fio = QLineEdit()
         self.inp_fio.setStyleSheet(_css_entry())
-        fio_val = self._domain_fio or config.get("fio")
+        fio_val = _read_fio() or self._domain_fio
         if fio_val:
             self.inp_fio.setText(fio_val)
-        if self._is_domain and self._domain_fio:
+        if self._is_domain and self._domain_fio and not _read_fio():
             self.inp_fio.setReadOnly(True)
         layout.addWidget(self.inp_fio)
 
@@ -483,11 +501,17 @@ class TicketWindow(QWidget):
         QTimer.singleShot(0, lambda: fn(*args))
 
     def _on_ok(self, msg):
-        self._set_status(msg, error=False)
         self.btn_send.setEnabled(True)
         self.btn_send.setText("📨  Отправить")
         self.inp_subject.clear()
         self.inp_content.clear()
+        self._set_status("", error=False)
+        from PyQt5.QtWidgets import QMessageBox
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle("Заявка создана")
+        dlg.setText(msg)
+        dlg.setIcon(QMessageBox.Information)
+        dlg.exec_()
         # Обновить историю если открыта
         if self._history_visible:
             QTimer.singleShot(1000, self._load_history)

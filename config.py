@@ -6,7 +6,12 @@ import configparser
 from pathlib import Path
 
 # EXE и rdid.txt — в Program Files (читаем только, пишет installer как admin)
-APP_DIR = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "AP35Agent"
+# ProgramW6432 всегда указывает на 64-бит Program Files (даже из 32-бит процесса)
+APP_DIR = Path(
+    os.environ.get("ProgramW6432") or
+    os.environ.get("ProgramFiles") or
+    "C:/Program Files"
+) / "AP35Agent"
 RDID_FILE = APP_DIR / "rdid.txt"
 
 # Конфиг — в APPDATA (всегда доступен на запись текущему пользователю)
