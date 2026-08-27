@@ -5,7 +5,7 @@ import os
 import configparser
 from pathlib import Path
 
-APP_DIR = Path("C:/AP35Agent")
+APP_DIR = Path(os.environ.get("ProgramFiles", "C:/Program Files")) / "AP35Agent"
 RDID_FILE = APP_DIR / "rdid.txt"
 CONFIG_FILE = APP_DIR / "agent_tray.ini"
 
