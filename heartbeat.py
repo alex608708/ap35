@@ -39,7 +39,23 @@ class HeartbeatThread(threading.Thread):
     def _send(self, rdid: str):
         try:
             last_cmd_id = int(config.get('last_cmd_id', '0') or 0)
-            body = json.dumps({"id": rdid, "last_cmd_id": last_cmd_id}).encode()
+            # Включаем workplace чтобы сервер мог обновить папку агента
+            workplace_local = config.get('workplace', '')
+            if not workplace_local:
+                # Fallback: читаем workplace.txt
+                try:
+                    from pathlib import Path
+                    for enc in ('utf-16', 'utf-8', 'cp1251'):
+                        try:
+                            wp = (config.APP_DIR / 'workplace.txt').read_text(encoding=enc).strip()
+                            if wp and len(wp) > 1:
+                                workplace_local = wp
+                                break
+                        except Exception:
+                            continue
+                except Exception:
+                    pass
+            body = json.dumps({"id": rdid, "last_cmd_id": last_cmd_id, "workplace": workplace_local}).encode()
             req = urllib.request.Request(
                 f"{config.SERVER}/api/heartbeat",
                 data=body,
