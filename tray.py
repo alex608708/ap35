@@ -111,6 +111,9 @@ class TrayApp:
         if self._ticket_win is None:
             self._ticket_win = TicketWindow()
         self._ticket_win.show()
+        self._ticket_win.setWindowState(
+            self._ticket_win.windowState() & ~Qt.WindowMinimized | Qt.WindowActive
+        )
         self._ticket_win.raise_()
         self._ticket_win.activateWindow()
 
@@ -124,6 +127,7 @@ class TrayApp:
         """Выполняется в Qt main thread"""
         if command == 'notify':
             self._icon.notify(payload or 'Сообщение от AP35', 'AP35 Agent')
+            self._blink_notify(6)
         elif command == 'message':
             dlg = QMessageBox()
             dlg.setWindowTitle('AP35 — Сообщение')
@@ -135,6 +139,32 @@ class TrayApp:
             self._blink_icon(6)
         elif command == 'install':
             installer.execute_install(payload)
+
+    def _blink_notify(self, count: int):
+        """Мигание иконкой при получении уведомления."""
+        import PIL.Image, PIL.ImageDraw, io as _io
+        def make_alert():
+            img = PIL.Image.new('RGBA', (64, 64), (0, 0, 0, 0))
+            d = PIL.ImageDraw.Draw(img)
+            d.ellipse([4, 4, 60, 60], fill=(234, 88, 12, 255))
+            d.text((18, 14), '📢', fill='white')
+            return img
+        try:
+            alert_ico = make_alert()
+        except Exception:
+            alert_ico = icons.pending()
+        self._do_blink_notify(alert_ico, count)
+
+    def _do_blink_notify(self, alert_ico, count: int):
+        if count <= 0:
+            self._icon.icon = icons.online() if self._status == 'online' else icons.offline()
+            return
+        self._icon.icon = alert_ico
+        QTimer.singleShot(500, lambda: self._restore_notify(alert_ico, count))
+
+    def _restore_notify(self, alert_ico, count: int):
+        self._icon.icon = icons.online() if self._status == 'online' else icons.offline()
+        QTimer.singleShot(500, lambda: self._do_blink_notify(alert_ico, count - 1))
 
     def _blink_icon(self, count: int):
         if count <= 0:
