@@ -49,6 +49,7 @@ jobs:
             service.py
 
       - name: Upload to server
+        continue-on-error: true
         shell: pwsh
         env:
           UPLOAD_TOKEN: ${{ secrets.UPLOAD_TOKEN }}
@@ -57,29 +58,23 @@ jobs:
           [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
 
           $form = @{ token = $env:UPLOAD_TOKEN; file = Get-Item "dist\AP35AgentTray.exe" }
-          $resp = Invoke-RestMethod -Uri "$env:SERVER_URL/admin/upload_tray" `
-                                    -Method Post `
-                                    -Form $form `
-                                    -TimeoutSec 120
-          if ($resp.ok) {
-            Write-Host "Tray uploaded: $($resp.size) bytes"
-          } else {
-            Write-Error "Server error: $($resp | ConvertTo-Json)"
-            exit 1
-          }
+          try {
+            $resp = Invoke-RestMethod -Uri "$env:SERVER_URL/admin/upload_tray" `
+                                      -Method Post -Form $form -TimeoutSec 120
+            if ($resp.ok) { Write-Host "Tray uploaded: $($resp.size) bytes" }
+            else { Write-Warning "Tray upload: $($resp | ConvertTo-Json)" }
+          } catch { Write-Warning "Upload tray failed: $_" }
 
           $form2 = @{ token = $env:UPLOAD_TOKEN; file = Get-Item "dist\AP35AgentService.exe" }
-          $resp2 = Invoke-RestMethod -Uri "$env:SERVER_URL/admin/upload_service" `
-                                     -Method Post `
-                                     -Form $form2 `
-                                     -TimeoutSec 120
-          if ($resp2.ok) {
-            Write-Host "Service uploaded: $($resp2.size) bytes"
-          } else {
-            Write-Host "Service upload warning: $($resp2 | ConvertTo-Json)"
-          }
+          try {
+            $resp2 = Invoke-RestMethod -Uri "$env:SERVER_URL/admin/upload_service" `
+                                       -Method Post -Form $form2 -TimeoutSec 120
+            if ($resp2.ok) { Write-Host "Service uploaded: $($resp2.size) bytes" }
+            else { Write-Warning "Service upload: $($resp2 | ConvertTo-Json)" }
+          } catch { Write-Warning "Upload service failed: $_" }
 
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: AP35Agent
