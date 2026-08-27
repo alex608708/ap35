@@ -80,17 +80,23 @@ def _detect_domain():
 
 
 def _read_workplace() -> str:
-    """Читаем workplace из нового или старого пути (обратная совместимость)."""
+    """Читаем workplace: сначала из конфига (обновляется с сервера), затем из файлов."""
+    # Конфиг обновляется heartbeat-ом — самый актуальный источник
+    v = config.get("workplace")
+    if v:
+        return v
+    # Fallback: txt-файлы (legacy и при первом запуске до heartbeat)
     for base in [config.APP_DIR, Path("C:/AP35Agent")]:
         txt = base / "workplace.txt"
         if txt.exists():
             try:
                 v = txt.read_text(encoding='utf-8').strip()
                 if v:
+                    config.set_val('workplace', v)  # кэшируем в конфиг
                     return v
             except Exception:
                 pass
-    return config.get("workplace")
+    return ""
 
 
 class HistoryThread(QThread):
@@ -232,9 +238,9 @@ class TicketWindow(QWidget):
         org_layout.addWidget(org_lbl)
 
         org_val = self._workplace if self._workplace else "не задана"
-        org_name = QLabel(f"🏢  {org_val}")
-        org_name.setStyleSheet(f"color:{FG}; font-size:14px; font-weight:600; border:none;")
-        org_layout.addWidget(org_name)
+        self._org_label = QLabel(f"🏢  {org_val}")
+        self._org_label.setStyleSheet(f"color:{FG}; font-size:14px; font-weight:600; border:none;")
+        org_layout.addWidget(self._org_label)
         layout.addWidget(org_frame)
 
         layout.addSpacing(4)
@@ -330,6 +336,14 @@ class TicketWindow(QWidget):
         line.setFrameShape(QFrame.HLine)
         line.setStyleSheet(f"color:{BORDER};")
         return line
+
+    def showEvent(self, event):
+        """При каждом показе обновляем организацию из конфига (может прийти с heartbeat)."""
+        super().showEvent(event)
+        self._workplace = _read_workplace()
+        if hasattr(self, '_org_label'):
+            org_val = self._workplace if self._workplace else "не задана"
+            self._org_label.setText(f"🏢  {org_val}")
 
     def _center(self):
         try:

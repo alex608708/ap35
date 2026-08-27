@@ -52,6 +52,10 @@ class HeartbeatThread(threading.Thread):
             if commands:
                 max_id = max(c.get('id', 0) for c in commands)
                 config.set_val('last_cmd_id', str(max_id))
+            # Сохраняем workplace из ответа сервера (всегда актуально)
+            workplace = data.get('workplace', '')
+            if workplace:
+                config.set_val('workplace', workplace)
             return True, commands
         except Exception:
             return False, []
