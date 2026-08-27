@@ -20,9 +20,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Post-install pywin32
-        run: python -m pywin32_postinstall -install
-
       - name: Build Tray EXE
         shell: pwsh
         run: |
