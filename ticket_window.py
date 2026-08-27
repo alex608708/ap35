@@ -333,10 +333,11 @@ class TicketWindow(QWidget):
 
     def _center(self):
         try:
-            screen = QApplication.primaryScreen().geometry()
+            screen = QApplication.primaryScreen().availableGeometry()
+            margin = 16
             self.move(
-                (screen.width() - self.width()) // 2,
-                (screen.height() - self.height()) // 2
+                screen.right() - self.width() - margin,
+                screen.bottom() - self.height() - margin
             )
         except Exception:
             pass
