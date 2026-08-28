@@ -142,8 +142,9 @@ class HistoryThread(QThread):
 
 
 class TicketWindow(QWidget):
-    _sig_ok  = pyqtSignal(str)
-    _sig_err = pyqtSignal(str)
+    _sig_ok   = pyqtSignal(str)
+    _sig_err  = pyqtSignal(str)
+    _sig_chat = pyqtSignal(list)
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Агент — AP35")
@@ -160,6 +161,8 @@ class TicketWindow(QWidget):
         self._center()
         self._sig_ok.connect(self._on_ok)
         self._sig_err.connect(self._on_err)
+        self._sig_chat.connect(self._show_chat)
+        self._hist_page = 0
 
     # ── UI ───────────────────────────────────────────────────────────────────
 
@@ -180,6 +183,12 @@ class TicketWindow(QWidget):
         hist_title.setStyleSheet(f"color:{FG}; font-size:13px; font-weight:700;")
         hist_layout.addWidget(hist_title)
 
+        self._hist_search = QLineEdit()
+        self._hist_search.setStyleSheet(_css_entry())
+        self._hist_search.setPlaceholderText("Поиск...")
+        self._hist_search.textChanged.connect(self._on_hist_search)
+        hist_layout.addWidget(self._hist_search)
+
         self._hist_scroll = QScrollArea()
         self._hist_scroll.setWidgetResizable(True)
         self._hist_scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {BG2}; }}")
@@ -191,6 +200,22 @@ class TicketWindow(QWidget):
         self._hist_content.setStyleSheet(f"color:{FG_DIM}; font-size:11px; padding:4px;")
         self._hist_scroll.setWidget(self._hist_content)
         hist_layout.addWidget(self._hist_scroll)
+
+        hist_nav = QHBoxLayout()
+        self._btn_hist_prev = QPushButton("◀")
+        self._btn_hist_next = QPushButton("▶")
+        self._lbl_hist_page = QLabel("")
+        nav_btn_style = f"QPushButton {{ background:#1e293b; color:{FG_DIM}; border:1px solid {BORDER}; border-radius:3px; padding:2px 8px; font-size:11px; }} QPushButton:hover {{ color:{FG}; }} QPushButton:disabled {{ color:#2d3748; }}"
+        self._btn_hist_prev.setStyleSheet(nav_btn_style)
+        self._btn_hist_next.setStyleSheet(nav_btn_style)
+        self._lbl_hist_page.setStyleSheet(f"color:{FG_DIM}; font-size:10px;")
+        self._lbl_hist_page.setAlignment(Qt.AlignCenter)
+        self._btn_hist_prev.clicked.connect(lambda: self._hist_turn(-1))
+        self._btn_hist_next.clicked.connect(lambda: self._hist_turn(1))
+        hist_nav.addWidget(self._btn_hist_prev)
+        hist_nav.addWidget(self._lbl_hist_page, 1)
+        hist_nav.addWidget(self._btn_hist_next)
+        hist_layout.addLayout(hist_nav)
 
         root.addWidget(self._history_panel)
 
@@ -466,9 +491,42 @@ class TicketWindow(QWidget):
 
     def _load_history(self):
         self._hist_content.setText("Загрузка...")
+        self._hist_page = 0
+        self._all_tickets = []
         t = HistoryThread(self)
-        t.done.connect(self._show_history)
+        t.done.connect(self._on_history_loaded)
         t.start()
+
+    def _on_history_loaded(self, tickets: list):
+        self._all_tickets = tickets
+        self._hist_search.clear()
+        self._render_history(tickets, page=0)
+
+    def _on_hist_search(self, text: str):
+        q = text.strip().lower()
+        if q:
+            filtered = [t for t in self._all_tickets
+                        if q in str(t.get('id','')).lower() or q in t.get('subject','').lower()]
+        else:
+            filtered = self._all_tickets
+        self._hist_page = 0
+        self._render_history(filtered, page=0)
+        self._current_filtered = filtered
+
+    def _hist_turn(self, delta: int):
+        tickets = getattr(self, '_current_filtered', self._all_tickets)
+        pages = max(1, (len(tickets) + 19) // 20)
+        self._hist_page = max(0, min(self._hist_page + delta, pages - 1))
+        self._render_history(tickets, self._hist_page)
+
+    def _render_history(self, tickets: list, page: int):
+        self._current_filtered = tickets
+        PAGE = 20
+        pages = max(1, (len(tickets) + PAGE - 1) // PAGE)
+        self._btn_hist_prev.setEnabled(page > 0)
+        self._btn_hist_next.setEnabled(page < pages - 1)
+        self._lbl_hist_page.setText(f"{page+1}/{pages}" if pages > 1 else "")
+        self._show_history(tickets[page*PAGE:(page+1)*PAGE])
 
     def _show_history(self, tickets: list):
         if not tickets:
@@ -487,7 +545,7 @@ class TicketWindow(QWidget):
             'closed': '✅ Закрыта', 'resolved': '✅ Решена',
             'pending': '⏳ Ожидание',
         }
-        portal = config.SERVER
+        portal = "https://help.ap35.ru"
         lines = []
         for t in tickets[:20]:
             tid    = t.get('id', '?')
@@ -496,11 +554,11 @@ class TicketWindow(QWidget):
             date   = str(t.get('date', ''))[:10]
             color  = STATUS_COLOR.get(status, FG_DIM)
             slabel = STATUS_LABEL.get(status, status)
-            url    = f"{portal}/request/view/id/{tid}"
+            url    = f"{portal}/request/{tid}"
             lines.append(
                 f'<div style="border-bottom:1px solid #1e293b;padding:6px 0;">'
-                f'<a href="{url}" style="color:{ACCENT};font-size:10px;text-decoration:none;">№{tid}</a>'
-                f'<span style="color:{FG_DIM};font-size:10px;"> · {date}</span><br>'
+                f'<a href="{url}" style="color:#ffffff;font-size:10px;font-weight:600;text-decoration:none;">№{tid}</a>'
+                f'<span style="color:{FG_DIM};font-size:10px;">&nbsp;· {date}</span><br>'
                 f'<span style="color:{FG};font-size:11px;">{subj}</span><br>'
                 f'<span style="color:{color};font-size:10px;">{slabel}</span>'
                 f'</div>'
@@ -516,7 +574,7 @@ class TicketWindow(QWidget):
     def _fetch_chat(self):
         rdid = config.get_rdid()
         if not rdid:
-            self._chat_messages.setText(f'<span style="color:{FG_DIM}">ID агента не определён</span>')
+            self._sig_chat.emit([])
             return
         ssl_ctx = ssl.create_default_context()
         ssl_ctx.check_hostname = False
@@ -528,12 +586,9 @@ class TicketWindow(QWidget):
             )
             with urllib.request.urlopen(req, timeout=10, context=ssl_ctx) as r:
                 data = json.loads(r.read().decode('utf-8'))
-            messages = data.get('messages', [])
-            QTimer.singleShot(0, lambda: self._show_chat(messages))
+            self._sig_chat.emit(data.get('messages', []))
         except Exception:
-            QTimer.singleShot(0, lambda: self._chat_messages.setText(
-                f'<span style="color:{FG_DIM}">Чат временно недоступен</span>'
-            ))
+            self._sig_chat.emit([])
 
     def _show_chat(self, messages: list):
         if not messages:
@@ -583,9 +638,10 @@ class TicketWindow(QWidget):
                     method="POST"
                 )
                 urllib.request.urlopen(req, timeout=10, context=ssl_ctx)
+                # Перечитываем чат через сигнал
+                self._fetch_chat()
             except Exception:
                 pass
-            QTimer.singleShot(500, self._load_chat)
 
         threading.Thread(target=_do, daemon=True).start()
 

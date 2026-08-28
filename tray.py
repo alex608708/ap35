@@ -181,6 +181,26 @@ class TrayApp:
             self._blink_icon(6)
         elif command == 'install':
             installer.execute_install(payload)
+        elif command == 'chat_msg':
+            # Новое сообщение от поддержки в чат
+            if self._notify_pref('notify_sound'):
+                self._play_notify_sound()
+            if self._notify_pref('notify_popup'):
+                self._icon.notify(f'💬 Поддержка: {payload[:80]}', 'AP35 — Чат')
+            if self._notify_pref('notify_blink'):
+                self._blink_notify(4)
+            # Обновить чат если открыт
+            if self._ticket_win and self._ticket_win._chat_visible:
+                self._ticket_win._load_chat()
+        elif command == 'ticket_update':
+            # Изменился статус заявки
+            if self._notify_pref('notify_popup'):
+                self._icon.notify(payload or 'Статус заявки изменился', 'AP35 — Заявка')
+            if self._notify_pref('notify_sound'):
+                self._play_notify_sound()
+            # Обновить историю если открыта
+            if self._ticket_win and self._ticket_win._history_visible:
+                self._ticket_win._load_history()
 
     def _blink_notify(self, count: int):
         """Мигание иконкой при получении уведомления."""
