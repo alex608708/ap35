@@ -143,6 +143,8 @@ class HistoryThread(QThread):
 
 
 class TicketWindow(QWidget):
+    _sig_ok  = pyqtSignal(str)
+    _sig_err = pyqtSignal(str)
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Агент — AP35")
@@ -156,6 +158,8 @@ class TicketWindow(QWidget):
 
         self._build()
         self._center()
+        self._sig_ok.connect(self._on_ok)
+        self._sig_err.connect(self._on_err)
 
     # ── UI ───────────────────────────────────────────────────────────────────
 
@@ -290,7 +294,8 @@ class TicketWindow(QWidget):
         layout.addWidget(self._cap(fio_cap))
         self.inp_fio = QLineEdit()
         self.inp_fio.setStyleSheet(_css_entry())
-        fio_val = self._domain_fio or config.get("fio") or _read_fio()
+        # Только сохранённый FIO от предыдущей отправки на этом ПК
+        fio_val = config.get("fio")
         if fio_val:
             self.inp_fio.setText(fio_val)
         # FIO всегда редактируемо - пользователь может исправить
@@ -489,15 +494,11 @@ class TicketWindow(QWidget):
             with urllib.request.urlopen(req, timeout=15, context=ssl_ctx) as r:
                 data = json.loads(r.read().decode('utf-8'))
             if data.get("ok"):
-                self._qt_call(self._on_ok, f"✅  Заявка №{data.get('ticket_id','?')} создана!")
+                self._sig_ok.emit(f"✅  Заявка №{data.get('ticket_id','?')} создана!")
             else:
-                self._qt_call(self._on_err, data.get("error", "Ошибка сервера"))
+                self._sig_err.emit(data.get("error", "Ошибка сервера"))
         except Exception as e:
-            self._qt_call(self._on_err, f"Ошибка соединения: {e}")
-
-    def _qt_call(self, fn, *args):
-        from PyQt5.QtCore import QTimer
-        QTimer.singleShot(0, lambda: fn(*args))
+            self._sig_err.emit(f"Ошибка соединения: {e}")
 
     def _on_ok(self, msg):
         self.btn_send.setEnabled(True)
