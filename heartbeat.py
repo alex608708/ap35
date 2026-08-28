@@ -39,22 +39,24 @@ class HeartbeatThread(threading.Thread):
     def _send(self, rdid: str):
         try:
             last_cmd_id = int(config.get('last_cmd_id', '0') or 0)
-            # Включаем workplace чтобы сервер мог обновить папку агента
-            workplace_local = config.get('workplace', '')
+            # workplace.txt (инсталлятор) — приоритет над кэшем при переустановке
+            workplace_local = ''
+            try:
+                from pathlib import Path
+                for enc in ('utf-16', 'utf-8', 'cp1251'):
+                    try:
+                        wp = (config.APP_DIR / 'workplace.txt').read_text(encoding=enc).strip()
+                        if wp and len(wp) > 1:
+                            workplace_local = wp
+                            if wp != config.get('workplace'):
+                                config.set_val('workplace', wp)
+                            break
+                    except Exception:
+                        continue
+            except Exception:
+                pass
             if not workplace_local:
-                # Fallback: читаем workplace.txt
-                try:
-                    from pathlib import Path
-                    for enc in ('utf-16', 'utf-8', 'cp1251'):
-                        try:
-                            wp = (config.APP_DIR / 'workplace.txt').read_text(encoding=enc).strip()
-                            if wp and len(wp) > 1:
-                                workplace_local = wp
-                                break
-                        except Exception:
-                            continue
-                except Exception:
-                    pass
+                workplace_local = config.get('workplace', '')
             # Crash log если был
             crash_log = ""
             try:

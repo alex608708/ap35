@@ -98,24 +98,22 @@ def _read_fio() -> str:
 
 
 def _read_workplace() -> str:
-    """Читаем workplace: сначала из конфига (обновляется с сервера), затем из файлов."""
-    # Конфиг обновляется heartbeat-ом — самый актуальный источник
-    v = config.get("workplace")
-    if v:
-        return v
-    # Fallback: txt-файлы — NSIS пишет в ANSI/cp1251, пробуем несколько кодировок
+    """Читаем workplace: сначала workplace.txt (инсталлятор), затем конфиг (heartbeat)."""
+    # workplace.txt пишет инсталлятор — актуален при переустановке с другой организацией
     for base in [config.APP_DIR, Path("C:/AP35Agent")]:
         txt = base / "workplace.txt"
         if txt.exists():
-            for enc in ('utf-8', 'cp1251', 'utf-16', 'latin-1'):
+            for enc in ('utf-16', 'utf-8', 'cp1251', 'latin-1'):
                 try:
                     v = txt.read_text(encoding=enc).strip()
                     if v and v.isprintable() and len(v) > 1:
-                        config.set_val('workplace', v)  # кэшируем в конфиг
+                        if v != config.get("workplace"):
+                            config.set_val('workplace', v)  # обновляем кэш
                         return v
                 except Exception:
                     continue
-    return ""
+    # Fallback: конфиг (если workplace.txt недоступен)
+    return config.get("workplace", "")
 
 
 class HistoryThread(QThread):
