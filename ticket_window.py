@@ -285,20 +285,14 @@ class TicketWindow(QWidget):
         layout.addWidget(self.inp_content)
 
         # ФИО
-        if self._is_domain and self._domain_fio:
-            fio_cap = "ВАШЕ ФИО (из домена)"
-        elif self._is_domain:
-            fio_cap = "ВАШЕ ФИО (домен, имя не найдено)"
-        else:
-            fio_cap = "ВАШЕ ФИО *"
-        layout.addWidget(self._cap(fio_cap))
+        layout.addWidget(self._cap("ВАШЕ ФИО *"))
         self.inp_fio = QLineEdit()
         self.inp_fio.setStyleSheet(_css_entry())
-        # Только сохранённый FIO от предыдущей отправки на этом ПК
-        fio_val = config.get("fio")
+        # Приоритет: сохранённый FIO → домен AD → пусто
+        fio_val = config.get("fio") or self._domain_fio
         if fio_val:
             self.inp_fio.setText(fio_val)
-        # FIO всегда редактируемо - пользователь может исправить
+        self.inp_fio.setPlaceholderText("Иванов Иван Иванович")
         layout.addWidget(self.inp_fio)
 
         # Телефон *
@@ -448,7 +442,7 @@ class TicketWindow(QWidget):
             self._set_status("Укажите тему заявки", error=True)
             return
         fio = self.inp_fio.text().strip()
-        if not self._is_domain and not fio:
+        if not fio:
             self._set_status("Укажите ваше ФИО", error=True)
             return
         phone = self.inp_phone.text().strip()
