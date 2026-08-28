@@ -33,9 +33,32 @@ def _load():
 
 
 def get_rdid() -> str:
-    """Читает rdid из Program Files (написан installer-ом)."""
+    """Читает rdid из Program Files. Если пусто — генерирует из Machine GUID."""
     try:
-        return RDID_FILE.read_text(encoding="utf-8").strip()
+        v = RDID_FILE.read_text(encoding="utf-8").strip()
+        if v:
+            return v
+    except Exception:
+        pass
+    # Fallback: стабильный ID из Machine GUID Windows
+    _fallback = _CFG_DIR / "rdid.txt"
+    try:
+        if _fallback.exists():
+            v = _fallback.read_text(encoding="utf-8").strip()
+            if v:
+                return v
+    except Exception:
+        pass
+    try:
+        import winreg, hashlib
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography")
+        guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+        winreg.CloseKey(key)
+        h = hashlib.md5(guid.encode()).hexdigest()
+        machine_id = str(int(h[:8], 16) % 900000000 + 100000000)  # 9 цифр
+        _CFG_DIR.mkdir(parents=True, exist_ok=True)
+        _fallback.write_text(machine_id, encoding="utf-8")
+        return machine_id
     except Exception:
         return ""
 

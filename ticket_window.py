@@ -8,10 +8,11 @@ import ssl
 import subprocess
 import threading
 import urllib.request
+import webbrowser
 from pathlib import Path
 
 from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve
-from PyQt5.QtGui import QColor, QPalette, QFont
+from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QLineEdit, QTextEdit, QPushButton, QFrame, QSizePolicy,
@@ -153,6 +154,7 @@ class TicketWindow(QWidget):
         self._is_domain, self._domain_fio = _detect_domain()
         self._workplace = _read_workplace()
         self._history_visible = False
+        self._chat_visible = False
 
         self._build()
         self._center()
@@ -174,7 +176,7 @@ class TicketWindow(QWidget):
         hist_layout.setContentsMargins(12, 16, 12, 12)
         hist_layout.setSpacing(6)
 
-        hist_title = QLabel("📋 Мои заявки")
+        hist_title = QLabel("📋 История заявок")
         hist_title.setStyleSheet(f"color:{FG}; font-size:13px; font-weight:700;")
         hist_layout.addWidget(hist_title)
 
@@ -184,6 +186,8 @@ class TicketWindow(QWidget):
         self._hist_content = QLabel("Загрузка...")
         self._hist_content.setWordWrap(True)
         self._hist_content.setAlignment(Qt.AlignTop)
+        self._hist_content.setOpenExternalLinks(True)
+        self._hist_content.setTextFormat(Qt.RichText)
         self._hist_content.setStyleSheet(f"color:{FG_DIM}; font-size:11px; padding:4px;")
         self._hist_scroll.setWidget(self._hist_content)
         hist_layout.addWidget(self._hist_scroll)
@@ -192,48 +196,61 @@ class TicketWindow(QWidget):
 
         # ── Основной контент ─────────────────────────────────────────────────
         main_frame = QFrame()
+        main_frame.setObjectName("main_frame")
         layout = QVBoxLayout(main_frame)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(8)
 
-        # Бейдж ID агента
+        # ── Шапка: [История] [ID по центру] [Чат] ───────────────────────────
         rdid = config.get_rdid()
-        id_frame = QFrame()
-        id_frame.setStyleSheet("QFrame { background:#052e16; border:1px solid #4ade80; border-radius:6px; }")
-        id_row = QHBoxLayout(id_frame)
-        id_row.setContentsMargins(12, 6, 12, 6)
-        id_row.setSpacing(0)
+        top_row = QHBoxLayout()
+        top_row.setSpacing(6)
 
-        if rdid:
-            last4  = rdid[-4:]
-            prefix = rdid[:-4] if len(rdid) > 4 else ""
-            id_html = (
-                f'<span style="color:#86efac;font-size:11px;">ID:&nbsp;</span>'
-                f'<span style="color:#94a3b8;font-size:11px;">{prefix}</span>'
-                f'<span style="color:#4ade80;font-size:18px;font-weight:800;">{last4}</span>'
-            )
-        else:
-            id_html = '<span style="color:#94a3b8;font-size:11px;">ID: не определён</span>'
-
-        id_lbl = QLabel(id_html)
-        id_lbl.setTextFormat(Qt.RichText)
-        id_lbl.setStyleSheet("background:transparent; border:none;")
-        id_row.addWidget(id_lbl)
-        id_row.addStretch()
-
-        # Кнопка История
-        btn_hist = QPushButton("📋 История")
-        btn_hist.setStyleSheet(f"""
+        btn_style = f"""
             QPushButton {{
                 background:#1e293b; color:{FG_DIM};
                 border:1px solid {BORDER}; border-radius:4px;
                 padding:3px 10px; font-size:11px;
             }}
             QPushButton:hover {{ background:#283548; color:{FG}; }}
-        """)
+            QPushButton:checked {{ background:#283548; color:{FG}; border-color:{ACCENT}; }}
+        """
+        btn_hist = QPushButton("📋 История")
+        btn_hist.setCheckable(True)
+        btn_hist.setStyleSheet(btn_style)
         btn_hist.clicked.connect(self._toggle_history)
-        id_row.addWidget(btn_hist)
-        layout.addWidget(id_frame)
+        top_row.addWidget(btn_hist)
+
+        top_row.addStretch()
+
+        if rdid:
+            last4  = rdid[-4:]
+            prefix = rdid[:-4] if len(rdid) > 4 else ""
+            id_html = (
+                f'<span style="color:#86efac;font-size:10px;">ID:&nbsp;</span>'
+                f'<span style="color:#94a3b8;font-size:10px;">{prefix}</span>'
+                f'<span style="color:#4ade80;font-size:16px;font-weight:800;">{last4}</span>'
+            )
+        else:
+            id_html = '<span style="color:#f87171;font-size:10px;">ID: не определён</span>'
+
+        id_lbl = QLabel(id_html)
+        id_lbl.setTextFormat(Qt.RichText)
+        id_lbl.setAlignment(Qt.AlignCenter)
+        id_lbl.setStyleSheet(f"background:#052e16; border:1px solid #166534; border-radius:4px; padding:3px 10px;")
+        top_row.addWidget(id_lbl)
+
+        top_row.addStretch()
+
+        btn_chat = QPushButton("💬 Чат")
+        btn_chat.setCheckable(True)
+        btn_chat.setStyleSheet(btn_style)
+        btn_chat.clicked.connect(self._toggle_chat)
+        top_row.addWidget(btn_chat)
+
+        self._btn_hist = btn_hist
+        self._btn_chat = btn_chat
+        layout.addLayout(top_row)
 
         # Заголовок
         title = QLabel("📋  Новая заявка")
@@ -339,6 +356,45 @@ class TicketWindow(QWidget):
         layout.addLayout(btn_row)
 
         root.addWidget(main_frame)
+
+        # ── Панель чата (справа, скрыта) ─────────────────────────────────────
+        self._chat_panel = QFrame()
+        self._chat_panel.setFixedWidth(0)
+        self._chat_panel.setStyleSheet(f"QFrame {{ background: {BG2}; border-left: 1px solid {BORDER}; }}")
+        chat_layout = QVBoxLayout(self._chat_panel)
+        chat_layout.setContentsMargins(12, 16, 12, 12)
+        chat_layout.setSpacing(6)
+
+        chat_title = QLabel("💬 Чат с поддержкой")
+        chat_title.setStyleSheet(f"color:{FG}; font-size:13px; font-weight:700;")
+        chat_layout.addWidget(chat_title)
+
+        self._chat_scroll = QScrollArea()
+        self._chat_scroll.setWidgetResizable(True)
+        self._chat_scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {BG2}; }}")
+        self._chat_messages = QLabel("Чат подключается...")
+        self._chat_messages.setWordWrap(True)
+        self._chat_messages.setAlignment(Qt.AlignTop)
+        self._chat_messages.setStyleSheet(f"color:{FG_DIM}; font-size:11px; padding:4px;")
+        self._chat_scroll.setWidget(self._chat_messages)
+        chat_layout.addWidget(self._chat_scroll)
+
+        chat_input_row = QHBoxLayout()
+        self._chat_input = QLineEdit()
+        self._chat_input.setStyleSheet(_css_entry())
+        self._chat_input.setPlaceholderText("Написать сообщение...")
+        self._chat_input.returnPressed.connect(self._send_chat)
+        chat_input_row.addWidget(self._chat_input)
+
+        btn_chat_send = QPushButton("→")
+        btn_chat_send.setFixedWidth(32)
+        btn_chat_send.setStyleSheet(f"QPushButton {{ background:{ACCENT}; color:white; border:none; border-radius:4px; font-size:14px; font-weight:700; }} QPushButton:hover {{ background:#5a52d5; }}")
+        btn_chat_send.clicked.connect(self._send_chat)
+        chat_input_row.addWidget(btn_chat_send)
+        chat_layout.addLayout(chat_input_row)
+
+        root.addWidget(self._chat_panel)
+
         self.inp_subject.setFocus()
 
     def _cap(self, text: str) -> QLabel:
@@ -373,26 +429,40 @@ class TicketWindow(QWidget):
 
     # ── История ──────────────────────────────────────────────────────────────
 
+    def _slide_panel(self, panel, visible, on_open=None):
+        target_w = 220 if visible else 0
+        for prop in (b"minimumWidth", b"maximumWidth"):
+            anim = QPropertyAnimation(panel, prop)
+            anim.setDuration(200)
+            anim.setStartValue(panel.width())
+            anim.setEndValue(target_w)
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+            anim.start()
+            self.__dict__[f"_anim_{id(panel)}_{prop}"] = anim  # keep ref
+        if visible and on_open:
+            on_open()
+
     def _toggle_history(self):
         self._history_visible = not self._history_visible
-        target_w = 220 if self._history_visible else 0
+        self._btn_hist.setChecked(self._history_visible)
+        # Закрыть чат если открыт
+        if self._history_visible and self._chat_visible:
+            self._chat_visible = False
+            self._btn_chat.setChecked(False)
+            self._slide_panel(self._chat_panel, False)
+        self._slide_panel(self._history_panel, self._history_visible,
+                          on_open=self._load_history)
 
-        self._anim = QPropertyAnimation(self._history_panel, b"minimumWidth")
-        self._anim.setDuration(200)
-        self._anim.setStartValue(self._history_panel.width())
-        self._anim.setEndValue(target_w)
-        self._anim.setEasingCurve(QEasingCurve.OutCubic)
-        self._anim.start()
-
-        self._anim2 = QPropertyAnimation(self._history_panel, b"maximumWidth")
-        self._anim2.setDuration(200)
-        self._anim2.setStartValue(self._history_panel.width())
-        self._anim2.setEndValue(target_w)
-        self._anim2.setEasingCurve(QEasingCurve.OutCubic)
-        self._anim2.start()
-
-        if self._history_visible:
-            self._load_history()
+    def _toggle_chat(self):
+        self._chat_visible = not self._chat_visible
+        self._btn_chat.setChecked(self._chat_visible)
+        # Закрыть историю если открыта
+        if self._chat_visible and self._history_visible:
+            self._history_visible = False
+            self._btn_hist.setChecked(False)
+            self._slide_panel(self._history_panel, False)
+        self._slide_panel(self._chat_panel, self._chat_visible,
+                          on_open=self._load_chat)
 
     def _load_history(self):
         self._hist_content.setText("Загрузка...")
@@ -402,7 +472,10 @@ class TicketWindow(QWidget):
 
     def _show_history(self, tickets: list):
         if not tickets:
-            self._hist_content.setText("Заявок пока нет")
+            self._hist_content.setText(
+                f'<span style="color:{FG_DIM};font-size:11px;">Заявок пока нет.<br>'
+                f'Заявки поданные через агент появятся здесь.</span>'
+            )
             return
 
         STATUS_COLOR = {
@@ -414,23 +487,107 @@ class TicketWindow(QWidget):
             'closed': '✅ Закрыта', 'resolved': '✅ Решена',
             'pending': '⏳ Ожидание',
         }
+        portal = config.SERVER
         lines = []
         for t in tickets[:20]:
             tid    = t.get('id', '?')
-            subj   = t.get('subject', '')[:30]
+            subj   = t.get('subject', '')[:28]
             status = t.get('status', 'new')
             date   = str(t.get('date', ''))[:10]
             color  = STATUS_COLOR.get(status, FG_DIM)
             slabel = STATUS_LABEL.get(status, status)
+            url    = f"{portal}/request/view/id/{tid}"
             lines.append(
                 f'<div style="border-bottom:1px solid #1e293b;padding:6px 0;">'
-                f'<span style="color:{FG_DIM};font-size:10px;">№{tid} · {date}</span><br>'
+                f'<a href="{url}" style="color:{ACCENT};font-size:10px;text-decoration:none;">№{tid}</a>'
+                f'<span style="color:{FG_DIM};font-size:10px;"> · {date}</span><br>'
                 f'<span style="color:{FG};font-size:11px;">{subj}</span><br>'
                 f'<span style="color:{color};font-size:10px;">{slabel}</span>'
                 f'</div>'
             )
-        self._hist_content.setTextFormat(Qt.RichText)
         self._hist_content.setText(''.join(lines))
+
+    # ── Чат ──────────────────────────────────────────────────────────────────
+
+    def _load_chat(self):
+        self._chat_messages.setText("Загрузка...")
+        threading.Thread(target=self._fetch_chat, daemon=True).start()
+
+    def _fetch_chat(self):
+        rdid = config.get_rdid()
+        if not rdid:
+            self._chat_messages.setText(f'<span style="color:{FG_DIM}">ID агента не определён</span>')
+            return
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+        try:
+            req = urllib.request.Request(
+                f"{config.SERVER}/api/chat?token={config.TOKEN}&rdid={rdid}",
+                method="GET"
+            )
+            with urllib.request.urlopen(req, timeout=10, context=ssl_ctx) as r:
+                data = json.loads(r.read().decode('utf-8'))
+            messages = data.get('messages', [])
+            QTimer.singleShot(0, lambda: self._show_chat(messages))
+        except Exception:
+            QTimer.singleShot(0, lambda: self._chat_messages.setText(
+                f'<span style="color:{FG_DIM}">Чат временно недоступен</span>'
+            ))
+
+    def _show_chat(self, messages: list):
+        if not messages:
+            self._chat_messages.setText(
+                f'<span style="color:{FG_DIM};font-size:11px;">Сообщений пока нет.<br>Напишите нам!</span>'
+            )
+            return
+        lines = []
+        for m in messages[-30:]:
+            is_admin = m.get('from_admin', False)
+            text  = m.get('text', '')
+            ts    = str(m.get('ts', ''))[-5:]
+            bg    = '#1e3a5f' if is_admin else BG2
+            align = 'left' if is_admin else 'right'
+            who   = 'Поддержка' if is_admin else 'Вы'
+            color = '#93c5fd' if is_admin else FG
+            lines.append(
+                f'<div style="text-align:{align};margin:4px 0;">'
+                f'<span style="font-size:9px;color:{FG_DIM};">{who} {ts}</span><br>'
+                f'<span style="background:{bg};color:{color};font-size:11px;'
+                f'padding:3px 6px;border-radius:4px;display:inline-block;">{text}</span>'
+                f'</div>'
+            )
+        self._chat_messages.setTextFormat(Qt.RichText)
+        self._chat_messages.setText(''.join(lines))
+
+    def _send_chat(self):
+        text = self._chat_input.text().strip()
+        if not text:
+            return
+        rdid = config.get_rdid()
+        if not rdid:
+            return
+        self._chat_input.clear()
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+
+        def _do():
+            try:
+                body = json.dumps({'token': config.TOKEN, 'rdid': rdid, 'text': text},
+                                  ensure_ascii=False).encode('utf-8')
+                req = urllib.request.Request(
+                    f"{config.SERVER}/api/chat",
+                    data=body,
+                    headers={"Content-Type": "application/json"},
+                    method="POST"
+                )
+                urllib.request.urlopen(req, timeout=10, context=ssl_ctx)
+            except Exception:
+                pass
+            QTimer.singleShot(500, self._load_chat)
+
+        threading.Thread(target=_do, daemon=True).start()
 
     # ── Отправка ─────────────────────────────────────────────────────────────
 
